@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 from setuptools import setup
 
-PLUGIN_ENTRY_POINT = ('vosk_stt_plug = jarbas_stt_plugin_vosk:VoskKaldiSTT',
-                      'vosk_streaming_stt_plug = jarbas_stt_plugin_vosk:VoskKaldiStreamingSTT')
+PLUGIN_ENTRY_POINT = 'vosk = neon_stt_plugin_vosk_streaming:VoskKaldiStreamingSTT'
 setup(
-    name='jarbas-stt-plugin-vosk',
+    name='neon-stt-plugin-vosk',
     version='0.2.1',
     description='A vosk stt plugin for mycroft',
-    url='https://github.com/JarbasLingua/jarbas-stt-plugin-vosk',
-    author='JarbasAi',
-    author_email='jarbasai@mailfence.com',
+    url='https://github.com/NeonGeckoCom/neon-stt-plugin-vosk',
+    author='NeonDaniel',
+    author_email='developers@neon.ai',
     license='Apache-2.0',
-    packages=['jarbas_stt_plugin_vosk'],
+    packages=['neon_stt_plugin_vosk_streaming'],
     install_requires=["numpy", "vosk",
                       "ovos-plugin-manager>=0.0.1a2",
                       "ovos_skill_installer"],
