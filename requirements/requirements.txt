@@ -1,5 +1,7 @@
 numpy
 vosk
+neon-utils>=0.5.7
 ovos-plugin-manager>=0.0.1a2
 ovos_skill_installer
 SpeechRecognition>=3.8.1
+phoneme_guesser

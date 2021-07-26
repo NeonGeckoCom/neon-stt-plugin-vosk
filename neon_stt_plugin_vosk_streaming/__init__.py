@@ -1,13 +1,20 @@
-from os.path import isdir
+import math
+import time
+from copy import deepcopy
+from inspect import signature
 import json
 from vosk import Model as KaldiModel, KaldiRecognizer
 from queue import Queue
 import numpy as np
 from ovos_utils.log import LOG
-from ovos_plugin_manager.templates.stt import STT, StreamThread, StreamingSTT
 from ovos_skill_installer import download_extract_zip, download_extract_tar
 from os.path import join, exists, isdir
 from xdg import BaseDirectory as XDG
+
+try:
+    from neon_speech.stt import STT, StreamingSTT, StreamThread
+except ImportError:
+    from ovos_plugin_manager.templates.stt import STT, StreamThread, StreamingSTT
 
 
 class VoskKaldiSTT(STT):
@@ -16,7 +23,7 @@ class VoskKaldiSTT(STT):
         # model_folder for backwards compat
         model_path = self.config.get("model_folder") or self.config.get(
             "model")
-        lang = self.config.get("lang")
+        lang = self.config.get("lang", 'en')
         if not model_path and lang:
             model_path = self.lang2modelurl(lang)
         if model_path and model_path.startswith("http"):
@@ -92,15 +99,35 @@ class VoskKaldiSTT(STT):
 
 
 class VoskKaldiStreamThread(StreamThread):
-    def __init__(self, queue, lang, kaldi, verbose=True):
+    def __init__(self, queue, lang, kaldi, results_event, verbose=True):
         super().__init__(queue, lang)
         self.kaldi = kaldi
+        self.results_event = results_event
+        self.text = ""
+        self.transcriptions = []
         self.verbose = verbose
         self.previous_partial = ""
 
     def handle_audio_stream(self, audio, language):
+        short_normalize = (1.0 / 32768.0)
+        swidth = 2
+        threshold = 10
+        timeout_length = 5
+
+        def rms(frame):
+            count = len(frame) / swidth
+            sum_squares = 0.0
+            for sample in frame:
+                n = sample * short_normalize
+                sum_squares += n * n
+            rms_value = math.pow(sum_squares / count, 0.5)
+            return rms_value * 1000
+
+        current_time = time.time()
+        end_time = current_time + timeout_length
+        last_text = ''
         for a in audio:
-            data = np.frombuffer(a, np.int16)
+            data = bytes(np.frombuffer(a, np.int16))
             if self.kaldi.AcceptWaveform(data):
                 res = self.kaldi.Result()
                 res = json.loads(res)
@@ -109,12 +136,19 @@ class VoskKaldiStreamThread(StreamThread):
                 res = self.kaldi.PartialResult()
                 res = json.loads(res)
                 self.text = res["partial"]
+            if rms(data) > threshold and self.text != last_text:
+                end_time = current_time + timeout_length
+            last_text = deepcopy(self.text)
+            if current_time > end_time:
+                break
         if self.verbose:
             if self.previous_partial != self.text:
                 LOG.info("Partial Transcription: " + self.text)
         self.previous_partial = self.text
-
-        return self.text
+        self.transcriptions = [self.text]
+        if self.results_event:
+            self.results_event.set()
+        return self.transcriptions
 
     def finalize(self):
         if self.previous_partial:
@@ -123,9 +157,13 @@ class VoskKaldiStreamThread(StreamThread):
 
 
 class VoskKaldiStreamingSTT(StreamingSTT, VoskKaldiSTT):
-
-    def __init__(self):
-        super().__init__()
+    def __init__(self, results_event, config=None):
+        if len(signature(super(VoskKaldiStreamingSTT, self).__init__).parameters) == 2:
+            super(VoskKaldiStreamingSTT, self).__init__(results_event, config)
+        else:
+            LOG.warning(f"Shorter Signature Found; config will be ignored and results_event will not be handled!")
+            super(VoskKaldiStreamingSTT, self).__init__()
+            self.results_event = None
         self.verbose = self.config.get("verbose", False)
 
     def create_streaming_thread(self):
